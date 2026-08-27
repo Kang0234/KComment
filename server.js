@@ -71,6 +71,7 @@ app.use('/api/admin', adminRouter);
 const staticOpts = { maxAge: '1h' };
 app.use('/widget', express.static(path.join(__dirname, 'public', 'widget'), staticOpts));
 app.use('/admin', express.static(path.join(__dirname, 'public', 'admin'), staticOpts));
+app.use('/login', express.static(path.join(__dirname, 'public', 'login'), staticOpts));
 
 // 演示页
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

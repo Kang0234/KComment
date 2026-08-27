@@ -2,6 +2,7 @@
 
 const { Router } = require('express');
 const crypto = require('crypto');
+const db = require('../db');
 const store = require('../store');
 const config = require('../config');
 const settings = require('../services/settings');
@@ -302,6 +303,12 @@ router.patch('/comments/:id/review', async (req, res, next) => {
     const status = String((req.body || {}).status || '');
     if (!STATUS_SET.has(status)) return res.status(400).json({ code: 400, msg: '无效状态' });
 
+    // 违禁库命中的评论原则上不可展示，需先处理拦截日志
+    if (status !== 'rejected') {
+      const hit = db.prepare('SELECT id FROM violations WHERE comment_id=?').get(id);
+      if (hit) return res.status(403).json({ code: 403, msg: '该评论命中违禁模式库，不可展示；请先在「违禁库」中删除对应拦截日志' });
+    }
+
     const ok = await store.setStatus(id, status);
     if (!ok) return res.status(404).json({ code: 404, msg: '评论不存在' });
     res.json({ code: 0, data: { id, status } });
@@ -313,8 +320,69 @@ router.delete('/comments/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     await store.deleteCascade(id);
+    db.prepare('DELETE FROM violations WHERE comment_id = ?').run(id);
+    db.prepare('DELETE FROM like_marks WHERE comment_id = ?').run(id);
     res.json({ code: 0, msg: '已删除' });
   } catch (e) { next(e); }
+});
+
+// ---- 全站统计 ----
+router.get('/stats', async (req, res, next) => {
+  try {
+    const base = await store.counts();
+    const q = (sql) => db.prepare(sql).get().n;
+    res.json({
+      code: 0,
+      data: {
+        ...base,
+        approved: q("SELECT COUNT(*) AS n FROM comments WHERE status='approved'"),
+        rejected: q("SELECT COUNT(*) AS n FROM comments WHERE status='rejected'"),
+        total_likes: q('SELECT COALESCE(SUM(likes),0) AS n FROM comments'),
+        pages: q('SELECT COUNT(DISTINCT page_key) AS n FROM comments'),
+        violations: q('SELECT COUNT(*) AS n FROM violations'),
+      },
+    });
+  } catch (e) { next(e); }
+});
+
+// ---- 违禁模式库 ----
+router.get('/violations', (req, res) => {
+  const type = String(req.query.type || 'patterns');
+  if (type === 'logs') {
+    const rows = db.prepare(
+      `SELECT v.id, v.comment_id, v.matched_text, v.ip, v.content, v.created_at, c.status AS comment_status
+       FROM violations v LEFT JOIN comments c ON c.id = v.comment_id
+       ORDER BY v.id DESC LIMIT 100`
+    ).all();
+    return res.json({ code: 0, data: rows });
+  }
+  const rows = db.prepare('SELECT id, pattern, note, created_at FROM violation_patterns ORDER BY id DESC').all();
+  res.json({ code: 0, data: rows });
+});
+
+router.post('/violations', (req, res) => {
+  const pattern = String((req.body || {}).pattern || '').trim();
+  if (!pattern || pattern.length > 200) return res.status(400).json({ code: 400, msg: '模式内容需为 1-200 字符' });
+  if (db.prepare('SELECT id FROM violation_patterns WHERE pattern=?').get(pattern)) {
+    return res.status(400).json({ code: 400, msg: '该模式已存在' });
+  }
+  const info = db.prepare('INSERT INTO violation_patterns (pattern, note, created_at) VALUES (?, ?, ?)')
+    .run(pattern, String((req.body || {}).note || '').slice(0, 100) || null, new Date().toISOString());
+  violations.invalidate();
+  res.json({ code: 0, data: { id: info.lastInsertRowid } });
+});
+
+router.delete('/violations/:id', (req, res) => {
+  const type = String(req.query.type || 'patterns');
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ code: 400, msg: '参数错误' });
+  if (type === 'logs') {
+    db.prepare('DELETE FROM violations WHERE id = ?').run(id);
+    return res.json({ code: 0, msg: '日志已删除' });
+  }
+  db.prepare('DELETE FROM violation_patterns WHERE id = ?').run(id);
+  violations.invalidate();
+  res.json({ code: 0, msg: '模式已删除' });
 });
 
 // ---- 举报列表 ----

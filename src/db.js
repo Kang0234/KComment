@@ -50,6 +50,24 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS violation_patterns (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  pattern    TEXT NOT NULL,
+  note       TEXT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_violation_patterns_id ON violation_patterns (id DESC);
+
+CREATE TABLE IF NOT EXISTS violations (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id   INTEGER NULL,
+  matched_id   INTEGER NULL,
+  matched_text TEXT NULL,
+  ip           TEXT NULL,
+  content      TEXT NOT NULL,
+  created_at   TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_comments_page ON comments (page_key, status, id);
 CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments (parent_id);
 CREATE INDEX IF NOT EXISTS idx_reports_comment ON reports (comment_id);

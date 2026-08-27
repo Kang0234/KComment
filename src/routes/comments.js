@@ -2,6 +2,7 @@
 
 const { Router } = require('express');
 const crypto = require('crypto');
+const db = require('../db');
 const store = require('../store');
 const { emailHash, toPublic } = require('../services/privacy');
 const { filter: sensitive, escapeHtml } = require('../services/sensitive');
@@ -10,6 +11,7 @@ const { writeLimiter } = require('../middleware/ratelimit');
 const settings = require('../services/settings');
 const captchaSvc = require('../services/captcha');
 const aiModeration = require('../services/aimoderation');
+const violations = require('../services/violations');
 
 const router = Router();
 
@@ -24,6 +26,7 @@ function validateContent(content) {
 }
 
 function validateName(name) {
+  if (name == null || name === '') return null; // 允许空（匿名 / 路人）
   if (typeof name !== 'string') return '昵称格式错误';
   const len = [...name].length;
   if (len < 1 || len > 24) return '昵称长度需在 1-24 字之间';
@@ -89,14 +92,28 @@ router.post('/', writeLimiter, async (req, res, next) => {
     // 安全：先转义，再过敏感词过滤（双重防护）
     const safeContent = sensitive.filter(escapeHtml(content));
 
-    // ---- 审核链：AI 审核（可选）→ 预审核开关决定初始状态 ----
-    let status = 'approved';
-    const aiCfg = settings.aiConfig();
-    if (aiCfg.enabled) {
-      const verdict = await aiModeration.moderate(aiCfg, { content: safeContent, userName: body.user_name });
-      status = verdict.status;
-    } else if (settings.preModeration()) {
-      status = 'pending';
+    // ---- 违禁模式库（归一化匹配，命中即拒绝）→ AI 审核 → 预审核 ----
+    const violation = violations.match(content);
+    let status;
+    let storeContent;
+
+    if (violation) {
+      status = 'rejected';
+      storeContent = content; // 原文仅存库供审计，永不展示
+      db.prepare(
+        'INSERT INTO violations (comment_id, matched_id, matched_text, ip, content, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(null, violation.id, violation.pattern, clientIp(req), content, new Date().toISOString());
+    } else {
+      const aiCfg = settings.aiConfig();
+      if (aiCfg.enabled) {
+        const verdict = await aiModeration.moderate(aiCfg, { content: safeContent, userName: body.user_name });
+        status = verdict.status;
+      } else if (settings.preModeration()) {
+        status = 'pending';
+      } else {
+        status = 'approved';
+      }
+      storeContent = safeContent;
     }
 
     const id = await store.insertComment({
@@ -105,12 +122,18 @@ router.post('/', writeLimiter, async (req, res, next) => {
       user_name: String(body.user_name).slice(0, 24),
       user_email_hash: emailHash(body.user_email),
       is_anonymous: isAnon ? 1 : 0,
-      content: safeContent,
+      content: storeContent,
       ip: clientIp(req),
       ua: String(req.headers['user-agent'] || '').slice(0, 200),
       status,
       created_at: new Date().toISOString(),
     });
+
+    if (violation) {
+      // 回填关联评论 id，便于后台审计
+      db.prepare('UPDATE violations SET comment_id=? WHERE comment_id IS NULL AND id=(SELECT MAX(id) FROM violations WHERE ip=?)')
+        .run(id, clientIp(req));
+    }
 
     const row = await store.getComment(id);
     res.status(201).json({
