@@ -1,6 +1,7 @@
 /*!
- * KComment widget v1.1.0
+ * KComment widget v1.2.0
  * 一段脚本接入评论区，像 Twikoo 一样即插即用。
+ * v1.2.0: 支持后台开启的人机验证（hCaptcha / reCAPTCHA v2 & v3 / Turnstile）
  *
  * 用法一（自动挂载，最简）：
  *   <div id="kcomment"></div>
@@ -44,6 +45,7 @@
     '.kc-anon{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--kc-muted);cursor:pointer;user-select:none;white-space:nowrap}',
     '.kc-anon input{accent-color:var(--kc-accent)}',
     '.kc-toolbar{display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:10px}',
+    '.kc-cap-wrap{margin-top:10px;min-height:0}',
     '.kc-hint{font-size:11.5px;color:var(--kc-faint);font-family:var(--kc-mono);letter-spacing:.02em}',
     '.kc-btn{border:none;cursor:pointer;font:inherit;font-size:13px;border-radius:calc(var(--kc-radius) - 4px);padding:7px 18px;',
     'background:var(--kc-text);color:var(--kc-bg);transition:background .15s,opacity .15s;letter-spacing:.06em}',
@@ -170,6 +172,86 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * 人机验证（hCaptcha / reCAPTCHA v2/v3 / Turnstile 统一适配）          *
+   * ------------------------------------------------------------------ */
+  var loadedScripts = {};
+  function loadScript(src) {
+    if (!loadedScripts[src]) {
+      loadedScripts[src] = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = src; s.async = true;
+        s.onload = resolve; s.onerror = function () { reject(new Error('script fail')); };
+        document.head.appendChild(s);
+      });
+    }
+    return loadedScripts[src];
+  }
+
+  var PROVIDERS = {
+    hcaptcha: {
+      api: 'https://js.hcaptcha.com/1/api.js?render=explicit',
+      render: function (slot, key, cb) { return window.hcaptcha.render(slot, { sitekey: key, callback: cb }); },
+      token: function (wid) { return window.hcaptcha.getResponse(wid); },
+      reset: function (wid) { try { window.hcaptcha.reset(wid); } catch (e) {} },
+    },
+    recaptcha_v2: {
+      api: 'https://www.google.com/recaptcha/api.js',
+      render: function (slot, key, cb) { return window.grecaptcha.render(slot, { sitekey: key, callback: cb }); },
+      token: function (wid) { return window.grecaptcha.getResponse(wid); },
+      reset: function (wid) { try { window.grecaptcha.reset(wid); } catch (e) {} },
+    },
+    recaptcha_v3: {
+      api: 'https://www.google.com/recaptcha/api.js?render=explicit',
+      // v3 无可见组件：提交时静默执行取 token
+      render: function () { return null; },
+      token: function (_wid, key) {
+        return window.grecaptcha.execute(key, { action: 'comment' });
+      },
+      reset: function () {},
+    },
+    turnstile: {
+      api: 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+      render: function (slot, key, cb) { return window.turnstile.render(slot, { sitekey: key, callback: cb }); },
+      token: function (wid) { return window.turnstile.getResponse(wid); },
+      reset: function (wid) { try { window.turnstile.reset(wid); } catch (e) {} },
+    },
+  };
+
+  function fetchSiteConfig(server) {
+    return fetch(server + '/api/comment/site-config')
+      .then(function (r) { return r.json(); })
+      .then(function (res) { return res && res.code === 0 ? res.data : null; })
+      .catch(function () { return null; });
+  }
+
+  // 在编辑器中渲染验证组件，返回一个 {getToken(): Promise<string>, refresh()} 对象
+  function mountCaptcha(container, siteCfg, doneCb) {
+    var p = PROVIDERS[siteCfg.captcha.provider];
+    var wrap = document.createElement('div');
+    wrap.className = 'kc-cap-wrap';
+    var slot = document.createElement('div');
+    wrap.appendChild(slot);
+    container.appendChild(wrap);
+
+    return loadScript(p.api).then(function () {
+      var widgetId = p.render(slot, siteCfg.captcha.site_key, function () { if (doneCb) doneCb(); });
+      return {
+        getToken: function () {
+          if (siteCfg.captcha.provider === 'recaptcha_v3') {
+            return Promise.resolve(p.token(widgetId, siteCfg.captcha.site_key));
+          }
+          var t = p.token(widgetId);
+          return Promise.resolve(t);
+        },
+        refresh: function () { p.reset(widgetId); },
+      };
+    }).catch(function () {
+      wrap.textContent = '人机验证组件加载失败';
+      return { getToken: function () { return Promise.resolve(''); }, refresh: function () {} };
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
    * 初始化                                                              *
    * ------------------------------------------------------------------ */
   var scriptEl = (function () {
@@ -191,6 +273,9 @@
     var pageKey = cfg.pageKey || (scriptEl && scriptEl.dataset.pageKey) || window.location.pathname || '/';
 
     injectCss();
+    var siteCfg = null;
+    // 站点配置异步拉取，发布前若无配置先补拉一次
+    fetchSiteConfig(server).then(function (sc) { siteCfg = sc; });
 
     var likedMap = loadJson('kcomment_liked', {});
     var identity = loadJson('kcomment_identity', { name: '', email: '', anon: false });
@@ -247,6 +332,19 @@
       var ta = box.querySelector('textarea');
       var busy = false;
 
+      function needCaptcha() {
+        return !!(siteCfg && siteCfg.captcha_required && siteCfg.captcha && PROVIDERS[siteCfg.captcha.provider]);
+      }
+
+      // 验证组件在编辑器创建时挂载（v3 不可见，挂了也不占位置）
+      var capHandle = { getToken: function () { return Promise.resolve(''); }, refresh: function () {} };
+      function mountCaptchaIfNeed() {
+        if (needCaptcha()) {
+          mountCaptcha(box.querySelector('.kc-toolbar'), siteCfg).then(function (h) { capHandle = h; });
+        }
+      }
+      mountCaptchaIfNeed();
+
       function submitAction() {
         if (busy) return;
         var content = ta.value.trim();
@@ -263,26 +361,46 @@
         }
         if (!name && !anon) name = '路人';
 
+        // 人机验证：拿 token 再提交
+        var tokenP = Promise.resolve('');
+        if (needCaptcha()) {
+          submit.disabled = true;
+          submit.textContent = '校验中…';
+          tokenP = siteCfg.captcha.provider === 'recaptcha_v3'
+            ? capHandle.getToken()
+            : capHandle.getToken().then(function (t) {
+                if (!t) toast('请先完成人机验证');
+                return t;
+              });
+        }
+
         busy = true;
         submit.disabled = true;
         submit.textContent = '发布中…';
-        fetch(server + '/api/comment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            page_key: pageKey,
-            parent_id: parentId || null,
-            user_name: name,
-            user_email: email,
-            is_anonymous: anon,
-            content: content,
-          }),
-        })
-          .then(function (r) { return json(r, { code: -1 }); })
+        tokenP
+          .then(function (token) {
+            return fetch(server + '/api/comment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                page_key: pageKey,
+                parent_id: parentId || null,
+                user_name: name,
+                user_email: email,
+                is_anonymous: anon,
+                content: content,
+                captcha_token: token || undefined,
+              }),
+            }).then(function (r) { return json(r, { code: -1 }); });
+          })
           .then(function (res) {
-            if (res.code !== 0) { toast(res.msg || '发布失败'); return; }
+            if (res.code !== 0) {
+              toast(res.msg || '发布失败');
+              if (needCaptcha()) { capHandle.refresh(); mountCaptchaIfNeed(); }
+              return;
+            }
             ta.value = '';
-            toast('已发布');
+            toast(res.meta && res.meta.message ? res.meta.message : '已发布');
             loadList();
           })
           .catch(function () { toast('网络异常，请稍后再试'); })

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>KComment 管理后台</title>
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--border:#e3ded2;--text:#26221a;--muted:#8d8778;--accent:#c2402a;--ok:#2e7d43;--warn:#b26a00}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.65}
+.wrap{max-width:860px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:20px;margin:0 0 6px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:18px}
+label{display:block;font-size:13px;font-weight:600;margin:14px 0 5px}
+input[type=text],input[type=password],input[type=url],select,textarea{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;font:inherit;background:#fffdf8;color:inherit;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+.hint{font-size:12px;color:var(--muted);margin-top:4px}
+button{font:inherit;cursor:pointer;border:none;border-radius:8px;padding:9px 20px;background:var(--text);color:#fff;letter-spacing:.05em;transition:background .15s}
+button:hover{background:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+button.ghost:hover{border-color:var(--accent);color:var(--accent)}
+.err{background:#fdeceb;border:1px solid #f5c6c2;color:#a12622;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;display:none}
+.ok-msg{background:#eaf5ec;border:1px solid #bfdcc6;color:#1e5631;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;display:none}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.check{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:400;cursor:pointer;margin:8px 0}
+.check input{width:auto;accent-color:var(--accent)}
+.sect{border-top:1px dashed var(--border);margin-top:18px;padding-top:6px}
+.sect h3{font-size:14px;margin:12px 0 4px}
+.badge{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:1px 7px;vertical-align:middle}
+.tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.tab{cursor:pointer;border:1px solid var(--border);background:#fff;border-radius:999px;padding:6px 16px;font-size:13px}
+.tab.on{background:var(--text);color:#fff;border-color:var(--text)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--muted);text-align:left;font-weight:500;font-size:12px;padding:8px 6px;border-bottom:1px solid var(--border)}
+td{padding:10px 6px;border-bottom:1px solid #efece4;vertical-align:top}
+td.c-content{white-space:pre-wrap;word-break:break-word;max-width:340px}
+.ip{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--muted)}
+.mini{padding:4px 10px;font-size:12px;border-radius:6px}
+.mini.ok{background:var(--ok)} .mini.warn{background:var(--warn)} .mini.danger{background:#fff;color:#a12622;border:1px solid #a12622}
+.pill{display:inline-block;font-size:11px;border-radius:4px;padding:1px 8px}
+.pill.approved{background:#eaf5ec;color:#1e5631}.pill.pending{background:#fdf3e0;color:#8a5a00}.pill.rejected{background:#fdeceb;color:#a12622}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.stat{font-size:13px;color:var(--muted)}.stat b{color:var(--text)}
+.hidden{display:none!important}
+.fieldset-off{opacity:.45;pointer-events:none}
+h2{font-size:15px;margin:0 0 12px}
+@media(max-width:600px){td.c-content{max-width:180px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ 初始化向导 ============ -->
+  <div id="view-setup" class="hidden">
+    <h1>🎉 安装向导 · 首次初始化</h1>
+    <p class="sub">KComment 已成功部署，只需这一步即可投入使用。所有选项之后都可在后台随时修改。</p>
+
+    <div class="card">
+      <h2>① 管理员密码</h2>
+      <label for="su-pass">设置管理后台密码（至少 8 位）</label>
+      <input type="password" id="su-pass" placeholder="管理员密码" autocomplete="new-password">
+      <label for="su-pass2">再输入一次确认</label>
+      <input type="password" id="su-pass2" placeholder="再次输入" autocomplete="new-password">
+      <div class="hint">密码经 scrypt 加盐哈希存储，服务器上不会留下明文。</div>
+    </div>
+
+    <div class="card">
+      <h2>② AI 审核 <span class="badge">可选</span></h2>
+      <label class="check"><input type="checkbox" id="su-ai-on"> 开启 AI 自动审核评论（推荐）</label>
+      <div id="su-ai-fields" class="fieldset-off hidden">
+        <label for="su-ai-url">AI 接口地址（OpenAI 兼容，填到 v1 即可）</label>
+        <input type="url" id="su-ai-url" placeholder="https://api.deepseek.com/v1 或 https://open.bigmodel.cn/api/paas/v4">
+        <label for="su-ai-key">API Key</label>
+        <input type="password" id="su-ai-key" placeholder="sk-...">
+        <label for="su-ai-model">模型名称</label>
+        <input type="text" id="su-ai-model" placeholder="deepseek-chat / glm-4-flash / gpt-4o-mini …">
+        <div class="hint">任何 OpenAI 兼容接口都可以：DeepSeek、智谱、通义、Moonshot、OpenAI 等。审核失败时评论自动转人工待审，不会丢失。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>③ 人机验证 <span class="badge">可选</span></h2>
+      <label class="check"><input type="checkbox" id="su-cap-on"> 开启人机验证（防机器刷评）</label>
+      <div id="su-cap-fields" class="hidden">
+        <label class="check"><input type="checkbox" id="su-cap-comment" checked> 发表评论前必须先通过人机验证</label>
+        <label for="su-cap-provider">验证厂商</label>
+        <select id="su-cap-provider">
+          <option value="hcaptcha">hCaptcha（国际常用）</option>
+          <option value="recaptcha_v2">Google reCAPTCHA v2（勾选框）</option>
+          <option value="recaptcha_v3">Google reCAPTCHA v3（无感打分）</option>
+          <option value="turnstile">Cloudflare Turnstile（无需注册 Google/hCaptcha，推荐 CF 用户）</option>
+        </select>
+        <label for="su-cap-site">Site Key（公开的，放在前端）</label>
+        <input type="text" id="su-cap-site" placeholder="对应的 Site Key">
+        <label for="su-cap-secret">Secret Key（保密的，仅服务端使用）</label>
+        <input type="password" id="su-cap-secret" placeholder="对应的 Secret Key">
+        <div class="hint">在对应厂商的控制台为你的域名创建站点后获取两把 Key。Turnstile 注册最简单：<a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Cloudflare Dashboard → Turnstile</a>。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>④ 审核策略</h2>
+      <label class="check"><input type="checkbox" id="su-premod"> 所有新评论先进入「待审」队列，人工通过后才展示</label>
+      <div class="hint">不开启则默认直接展示；若开启了 AI 审核，被 AI 拦下的仍会进入待审/拒绝。</div>
+    </div>
+
+    <div class="err" id="su-err"></div>
+    <button id="su-submit" style="width:100%;padding:12px">完成初始化并进入后台 →</button>
+    <p class="hint" style="text-align:center;margin-top:10px">老版本用户？<a href="#" id="su-legacy-link">用环境变量里的旧密码快速初始化</a></p>
+  </div>
+
+  <!-- ============ 登录 ============ -->
+  <div id="view-login" class="hidden" style="max-width:380px;margin-top:48px">
+    <div class="card">
+      <h2>KComment 管理后台登录</h2>
+      <label for="lg-pass">管理员密码</label>
+      <input type="password" id="lg-pass" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')document.getElementById('lg-btn').click()">
+      <div class="err" id="lg-err"></div>
+      <button id="lg-btn" style="width:100%">登 录</button>
+    </div>
+  </div>
+
+  <!-- ============ 后台面板 ============ -->
+  <div id="view-panel" class="hidden">
+    <div class="topbar">
+      <div><h1 style="margin:0">KComment 管理后台</h1><span class="stat">待审 <b id="hb-pending">0</b> 条 · 被举报 <b id="hb-reported">0</b> 条</span></div>
+      <div class="row">
+        <button class="ghost mini" onclick="location.href='/admin/#settings'">⚙ 设置</button>
+        <button class="ghost mini" id="btn-logout">退出</button>
+      </div>
+    </div>
+
+    <!-- 评论治理 -->
+    <div id="pane-comments">
+      <div class="tabs" id="tabs"></div>
+      <div class="card" style="padding:10px 18px">
+        <table><thead><tr><th>#</th><th>内容</th><th>IP / UA</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="cmt-body"></tbody></table>
+        <div class="row" style="margin-top:12px">
+          <button class="ghost mini" id="c-prev">上一页</button>
+          <span class="stat" id="c-pageinfo"></span>
+          <button class="ghost mini" id="c-next">下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置 -->
+    <div id="pane-settings" class="hidden">
+      <div class="card">
+        <h2>审核策略</h2>
+        <label class="check"><input type="checkbox" id="st-premod"> 新评论先进待审队列</label>
+      </div>
+      <div class="card">
+        <h2>人机验证</h2>
+        <label class="check"><input type="checkbox" id="st-cap-on"> 启用人机验证</label>
+        <label class="check"><input type="checkbox" id="st-cap-comment"> 发评论前必须过验证</label>
+        <label>厂商</label>
+        <select id="st-cap-provider">
+          <option value="hcaptcha">hCaptcha</option>
+          <option value="recaptcha_v2">reCAPTCHA v2</option>
+          <option value="recaptcha_v3">reCAPTCHA v3</option>
+          <option value="turnstile">Cloudflare Turnstile</option>
+        </select>
+        <label>Site Key</label><input type="text" id="st-cap-site">
+        <label>Secret Key（已脱敏，留空表示不修改）</label><input type="password" id="st-cap-secret" placeholder="••••">
+      </div>
+      <div class="card">
+        <h2>AI 审核</h2>
+        <label class="check"><input type="checkbox" id="st-ai-on"> 启用 AI 自动审核</label>
+        <label>接口地址</label><input type="url" id="st-ai-url">
+        <label>模型</label><input type="text" id="st-ai-model">
+        <label>API Key（已脱敏，留空表示不修改）</label><input type="password" id="st-ai-key" placeholder="••••">
+      </div>
+      <div class="card">
+        <h2>修改管理员密码</h2>
+        <label>原密码</label><input type="password" id="pw-old">
+        <label>新密码（≥8 位）</label><input type="password" id="pw-new">
+        <div class="err" id="pw-err"></div><div class="ok-msg" id="pw-ok"></div>
+        <button class="ghost" id="pw-btn">更新密码</button>
+      </div>
+      <div class="ok-msg" id="st-ok"></div>
+      <button id="st-save">保存设置</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+var API = '/api/admin';
+var TOKEN = localStorage.getItem('kc_admin_token') || '';
+function saveToken(t){ TOKEN=t; if(t)localStorage.setItem('kc_admin_token',t); else localStorage.removeItem('kc_admin_token'); }
+function show(id){ ['view-setup','view-login','view-panel'].forEach(function(v){ document.getElementById(v).classList.toggle('hidden', v!==id); }); }
+function err(id,msg){ var el=document.getElementById(id); el.textContent=msg; el.style.display=msg?'block':'none'; }
+function api(path, opts){
+  opts=opts||{};
+  opts.headers=Object.assign({'Content-Type':'application/json'},TOKEN?{'Authorization':'Bearer '+TOKEN}:{});
+  return fetch(API+path,opts).then(function(r){return r.json();});
+}
+window.addEventListener('hashchange',routePanes);
+
+/* ================= 初始化向导 ================= */
+document.getElementById('su-ai-on').addEventListener('change',function(){ document.getElementById('su-ai-fields').classList.toggle('hidden',!this.checked); });
+document.getElementById('su-cap-on').addEventListener('change',function(){ document.getElementById('su-cap-fields').classList.toggle('hidden',!this.checked); });
+
+document.getElementById('su-legacy-link').addEventListener('click',function(e){
+  e.preventDefault();
+  var pw=prompt('请输入 .env 中配置的管理密码（ADMIN_PASSWORD）：');
+  if(!pw) return;
+  api('/setup/claim',{method:'POST',body:JSON.stringify({password:pw})}).then(function(r){
+    if(r.code===0){ saveToken(r.data.token); location.href='/admin/'; }
+    else err('su-err',r.msg||'操作失败');
+  });
+});
+
+document.getElementById('su-submit').addEventListener('click',function(){
+  err('su-err','');
+  var btn=this;
+  var pass=document.getElementById('su-pass').value, pass2=document.getElementById('su-pass2').value;
+  if(pass!==pass2) { err('su-err','两次输入的密码不一致'); return; }
+  if([...pass].length<8){ err('su-err','密码至少 8 位'); return; }
+  var payload={admin_password:pass};
+  if(document.getElementById('su-ai-on').checked){
+    payload.ai_moderation={
+      enabled:true,
+      base_url:document.getElementById('su-ai-url').value.trim(),
+      api_key:document.getElementById('su-ai-key').value.trim(),
+      model:document.getElementById('su-ai-model').value.trim()
+    };
+  }
+  if(document.getElementById('su-cap-on').checked){
+    payload.captcha={
+      enabled:true,
+      on_comment:document.getElementById('su-cap-comment').checked,
+      provider:document.getElementById('su-cap-provider').value,
+      site_key:document.getElementById('su-cap-site').value.trim(),
+      secret_key:document.getElementById('su-cap-secret').value.trim()
+    };
+  }
+  payload.pre_moderation=document.getElementById('su-premod').checked;
+
+  btn.disabled=true; btn.textContent='初始化中…';
+  api('/setup/init',{method:'POST',body:JSON.stringify(payload)}).then(function(r){
+    if(r.code===0){ saveToken(r.data.token); location.href='/admin/'; }
+    else { err('su-err',r.msg||'初始化失败'); btn.disabled=false; btn.textContent='完成初始化并进入后台 →'; }
+  }).catch(function(){ err('su-err','网络错误'); btn.disabled=false; });
+});
+
+/* ================= 登录 ================= */
+document.getElementById('lg-btn').addEventListener('click',function(){
+  err('lg-err','');
+  api('/login',{method:'POST',body:JSON.stringify({password:document.getElementById('lg-pass').value})}).then(function(r){
+    if(r.code===0){ saveToken(r.data.token); enterPanel(); }
+    else err('lg-err',r.msg||'登录失败');
+  });
+});
+document.getElementById('btn-logout').addEventListener('click',function(){ saveToken(''); location.reload(); });
+
+/* ================= 后台面板 ================= */
+var cState={tab:'',page:1,size:20};
+var TABS=[['','全部'],['pending','待审'],['approved','已展示'],['rejected','已拒绝']];
+
+function enterPanel(){
+  show('view-panel');
+  renderTabs();
+  routePanes();
+  loadSettings();
+  heartbeat();
+  loadComments();
+}
+function renderTabs(){
+  var t=document.getElementById('tabs'); t.innerHTML='';
+  TABS.forEach(function(p){
+    var b=document.createElement('span');
+    b.className='tab'+(cState.tab===p[0]?' on':'');
+    b.textContent=p[1];
+    b.onclick=function(){ cState.tab=p[0]; cState.page=1; renderTabs(); loadComments(); };
+    t.appendChild(b);
+  });
+}
+function heartbeat(){
+  api('/heartbeat').then(function(r){
+    if(r.code===0){ document.getElementById('hb-pending').textContent=r.data.pending; document.getElementById('hb-reported').textContent=r.data.reported; }
+  });
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function loadComments(){
+  var qs='?page='+cState.page+'&size='+cState.size+(cState.tab?'&status='+cState.tab:'');
+  api('/comments'+qs).then(function(r){
+    if(r.code!==0) return;
+    var tb=document.getElementById('cmt-body'); tb.innerHTML='';
+    r.data.list.forEach(function(c){
+      var tr=document.createElement('tr');
+      tr.innerHTML='<td>'+c.id+'</td>'+
+        '<td class="c-content">'+esc(c.content)+'<br><span class="ip">'+esc(c.user_name)+(c.is_anonymous?' [匿名]':'')+' · '+esc((c.created_at||'').slice(0,16).replace('T',' '))+'</span></td>'+
+        '<td class="ip">'+esc(c.ip||'-')+'<br>'+esc((c.ua||'-').slice(0,40))+'</td>'+
+        '<td><span class="pill '+c.status+'">'+({approved:'展示中',pending:'待审',rejected:'已拒绝'})[c.status]+'</span>'+(c.report_count?'<br><span class="ip">举报×'+c.report_count+'</span>':'')+'</td>';
+      var ops=document.createElement('td');
+      [['approved','通过','ok'],['pending','待审','warn'],['rejected','拒绝','danger']].forEach(function(o){
+        if(c.status===o[0]) return;
+        var b=document.createElement('button');
+        b.className='mini '+o[2]+' ghost'; b.textContent=o[1];
+        b.onclick=function(){
+          api('/comments/'+c.id+'/review',{method:'PATCH',body:JSON.stringify({status:o[0]})}).then(loadComments);
+        };
+        ops.appendChild(b);
+      });
+      var del=document.createElement('button');
+      del.className='mini danger ghost'; del.textContent='删除';
+      del.onclick=function(){ if(confirm('删除该评论及其全部回复？')) api('/comments/'+c.id,{method:'DELETE'}).then(loadComments); };
+      ops.appendChild(del);
+      tr.appendChild(ops);
+      tb.appendChild(tr);
+    });
+    if(!r.data.list.length){ tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#8d8778">这里空空如也</td></tr>'; }
+    var maxPage=Math.max(1,Math.ceil(r.data.total/r.data.size));
+    document.getElementById('c-pageinfo').textContent='第 '+r.data.page+' / '+maxPage+' 页 · 共 '+r.data.total+' 条';
+    document.getElementById('c-prev').disabled=r.data.page<=1;
+    document.getElementById('c-next').disabled=r.data.page>=maxPage;
+  });
+}
+document.getElementById('c-prev').onclick=function(){ cState.page--; loadComments(); };
+document.getElementById('c-next').onclick=function(){ cState.page++; loadComments(); };
+
+function routePanes(){
+  var isSettings=location.hash==='#settings';
+  document.getElementById('pane-comments').classList.toggle('hidden',isSettings);
+  document.getElementById('pane-settings').classList.toggle('hidden',!isSettings);
+}
+
+/* ---- 设置 ---- */
+function fill(id,v){ document.getElementById(id).value=v||''; }
+function check(id,v){ document.getElementById(id).checked=!!v; }
+function loadSettings(){
+  api('/settings').then(function(r){
+    if(r.code!==0) return;
+    var d=r.data;
+    check('st-premod',d.pre_moderation);
+    check('st-cap-on',d.captcha.enabled); check('st-cap-comment',d.captcha.on_comment);
+    fill('st-cap-provider',d.captcha.provider); fill('st-cap-site',d.captcha.site_key); document.getElementById('st-cap-secret').value='';
+    check('st-ai-on',d.ai_moderation.enabled); fill('st-ai-url',d.ai_moderation.base_url); fill('st-ai-model',d.ai_moderation.model); document.getElementById('st-ai-key').value='';
+  });
+}
+document.getElementById('st-save').onclick=function(){
+  err('st-ok',''); 
+  var cap={enabled:document.getElementById('st-cap-on').checked,on_comment:document.getElementById('st-cap-comment').checked,
+    provider:document.getElementById('st-cap-provider').value,site_key:document.getElementById('st-cap-site').value.trim()};
+  var sk=document.getElementById('st-cap-secret').value.trim(); if(sk) cap.secret_key=sk;
+  var ai={enabled:document.getElementById('st-ai-on').checked,base_url:document.getElementById('st-ai-url').value.trim(),model:document.getElementById('st-ai-model').value.trim()};
+  var ak=document.getElementById('st-ai-key').value.trim(); if(ak) ai.api_key=ak;
+  api('/settings',{method:'PATCH',body:JSON.stringify({pre_moderation:document.getElementById('st-premod').checked,captcha:cap,ai_moderation:ai})}).then(function(r){
+    var el=document.getElementById('st-ok');
+    el.textContent=r.code===0?'✓ 已保存':(r.msg||'保存失败');
+    el.style.display='block';
+  });
+};
+document.getElementById('pw-btn').onclick=function(){
+  err('pw-err',''); err('pw-ok','');
+  api('/change-password',{method:'POST',body:JSON.stringify({old_password:document.getElementById('pw-old').value,new_password:document.getElementById('pw-new').value})}).then(function(r){
+    if(r.code===0){ err('pw-ok','✓ 密码已更新'); document.getElementById('pw-old').value=document.getElementById('pw-new').value=''; }
+    else err('pw-err',r.msg||'修改失败');
+  });
+};
+
+/* ================= 入口分流 ================= */
+api('/setup/status').then(function(r){
+  var inited=r.code===0&&r.data.initialized;
+  if(inited){
+    if(TOKEN){ enterPanel(); } else { show('view-login'); }
+  } else {
+    show('view-setup');
+  }
+}).catch(function(){ show('view-login'); });
+</script>
+</body>
+</html>

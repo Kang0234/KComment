@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/server.js",
+      "use": "@vercel/node",
+      "config": { "includeFiles": ["public/**", "data/**", "src/**"] }
+    }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "api/server.js" },
+    { "src": "/widget/(.*)", "dest": "api/server.js" },
+    { "src": "/admin/(.*)", "dest": "api/server.js" },
+    { "src": "/", "dest": "api/server.js" }
+  ]
+}

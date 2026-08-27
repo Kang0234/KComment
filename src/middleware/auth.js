@@ -2,10 +2,16 @@
 
 const jwt = require('jsonwebtoken');
 const config = require('../config');
+const settings = require('../services/settings');
+
+// JWT 密钥优先取后台初始化时持久化的密钥，其次环境变量
+function effectiveSecret() {
+  return settings.get('jwt_secret', '') || config.jwtSecret;
+}
 
 // 管理员签发 token（24 小时有效）
 function signAdmin(payload) {
-  return jwt.sign(payload, config.jwtSecret, { expiresIn: '24h' });
+  return jwt.sign(payload, effectiveSecret(), { expiresIn: '24h' });
 }
 
 // 校验管理请求：需在请求头携带 Authorization: Bearer <token>
@@ -16,7 +22,7 @@ function requireAdmin(req, res, next) {
     return res.status(401).json({ code: 401, msg: '未登录或凭证缺失' });
   }
   try {
-    req.admin = jwt.verify(token, config.jwtSecret);
+    req.admin = jwt.verify(token, effectiveSecret());
     next();
   } catch (e) {
     return res.status(401).json({ code: 401, msg: '凭证无效或已过期' });
