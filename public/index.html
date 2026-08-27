@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Priva Comment · 演示</title>
+  <link rel="stylesheet" href="/widget/comment-widget.css">
+  <style>
+    body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f6fa; color: #2c3038; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; }
+    h1 { font-size: 22px; }
+    .sub { color: #8a919c; font-size: 14px; margin-bottom: 28px; }
+    .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 5px; margin-right: 8px; }
+    .badge.b { background: #eef3ff; color: #4f7cff; }
+    .badge.g { background: #ecfdf3; color: #16a34a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Priva Comment <span class="badge b">隐私优先</span><span class="badge g">安全治理</span></h1>
+    <p class="sub">
+      对标 Twikoo 的开源评论系统：邮箱只存哈希、IP 仅管理员可见、匿名防追踪、敏感词自动过滤、防刷点赞、管理后台一键审核。
+      <br>在下方留下你的第一条评论吧。
+    </p>
+
+    <div id="comment-widget"></div>
+  </div>
+
+  <script src="/widget/comment-widget.js"></script>
+</body>
+</html>

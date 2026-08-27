@@ -1,0 +1,26 @@
+{
+  "name": "priva-comment",
+  "version": "1.0.0",
+  "description": "Privacy-first, secure comment system. Like Twikoo, but better on privacy & security.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node src/seed.js"
+  },
+  "keywords": [
+    "comment",
+    "privacy",
+    "security",
+    "comment-widget",
+    "twikoo"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
