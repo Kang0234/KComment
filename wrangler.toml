@@ -1,0 +1,8 @@
+name = "kcomment"
+compatibility_date = "2026-08-27"
+pages_build_output_dir = "site"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kcomment"
+database_id = "1e28613e-fe9c-4763-b50e-907a09d0901a"

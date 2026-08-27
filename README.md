@@ -37,8 +37,29 @@ npm start             # http://localhost:3000
 脚本默认以 `location.pathname` 作为评论挂载页面；自定义挂载点：
 
 ```js
-window.privaComment.init({ el: '#comment-widget', server: 'https://your-host.com', pageKey: '/post/42' });
+kcomment.init({ el: '#comment-widget', server: 'https://your-host.com', pageKey: '/post/42' });
 ```
+
+也支持在脚本标签上用 `data-server` / `data-page-key` 属性配置；全局名 `kcomment`（`privaComment` 为旧名兼容）。
+
+**最简接入（官方 CDN，免部署后端）**：
+
+```html
+<div id="kcomment"></div>
+<script src="https://kc.kang0234.top/widget/comment-widget.js"></script>
+```
+
+## 部署到 Cloudflare Pages（免服务器）
+
+仓库内置 Pages Functions 实现（`functions/`），配 D1 数据库即可零服务器部署：
+
+```bash
+wrangler d1 create kcomment              # 首次：建库，把返回的 database_id 填进 wrangler.toml
+wrangler d1 execute kcomment --file=./schema.sql   # 建表
+wrangler pages deploy                    # 部署 site/ 静态页 + functions/ API
+```
+
+`wrangler.toml` 已绑定 D1（binding: `DB`），线上 API 与自托管版完全同构。
 
 ## API 一览
 
@@ -82,7 +103,7 @@ window.privaComment.init({ el: '#comment-widget', server: 'https://your-host.com
 ## 目录结构
 
 ```
-server.js               # 入口
+server.js               # 自托管入口（Express + SQLite）
 src/
   config.js             # 配置
   db.js                 # SQLite（WAL）建表
@@ -96,17 +117,27 @@ src/
   routes/
     comments.js         # 前台接口
     admin.js            # 管理后台
-public/
-  index.html            # 演示页
-  widget/               # 前端评论模块
-site/
-  index.html            # 官网（部署在 Cloudflare Pages）
+functions/              # Cloudflare Pages Functions（D1 版 API）
+  api/
+    comment.js          # GET 查询 / POST 发表
+    comment/[id]/
+      like.js           # 点赞/取消（令牌去重）
+      report.js         # 举报
+  lib/
+    kc.js               # 共享库：脱敏、敏感词、限流、CORS
+site/                   # 官网（部署到 Cloudflare Pages）
+  index.html
+  widget/               # 前端评论模块（CDN 分发）
+  assets/               # 子集化字体
+schema.sql              # D1 建表脚本
+wrangler.toml           # Pages 项目配置（绑定 D1）
+public/                 # 自托管演示页
 data/
   sensitive-words.txt   # 敏感词表
 ```
 
 ## 官网
 
-官网部署在 Cloudflare Pages，访问地址：[https://kc.kang0234.top](https://kc.kang0234.top)
+官网部署在 Cloudflare Pages（Functions + D1），访问地址：[https://kc.kang0234.top](https://kc.kang0234.top)
 
-官网源码在 `site/index.html`，纯静态页面，可独立部署到任意静态托管平台。
+官网源码在 `site/`，评论区即真实后端，可发表、回复、点赞体验。
