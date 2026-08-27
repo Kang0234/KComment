@@ -6,6 +6,7 @@ const config = require('./src/config');
 const settings = require('./src/services/settings');
 const commentsRouter = require('./src/routes/comments');
 const adminRouter = require('./src/routes/admin');
+const uploadRouter = require('./src/routes/upload');
 
 const app = express();
 
@@ -66,6 +67,9 @@ app.use((err, req, res, next) => {
 // 业务路由
 app.use('/api/comment', commentsRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api', uploadRouter);
+// 用户上传图片的静态目录（upload 路由返回 /files/xxx 形式的 URL）
+app.use('/files', express.static(path.join(__dirname, 'data', 'uploads'), { maxAge: '365d', setHeaders: (r) => r.setHeader('X-Content-Type-Options', 'nosniff') }));
 
 // 静态资源：前端评论模块（widget）与管理后台
 const staticOpts = { maxAge: '1h' };
