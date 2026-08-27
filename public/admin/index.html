@@ -59,7 +59,9 @@ td.c-content{white-space:pre-wrap;word-break:break-word;max-width:320px}
     <p class="sub">KComment 服务已部署，这一步设置管理员密码并选择审核策略。所有选项以后都可在「设置」中修改。</p>
 
     <div class="card">
-      <h2>① 管理员密码</h2>
+      <h2>① 管理员账号</h2>
+      <label for="su-user">用户名（字母/数字，3-24 位）</label>
+      <input type="text" id="su-user" placeholder="例如 kang0234">
       <label for="su-pass">密码（至少 8 位）</label>
       <input type="password" id="su-pass" autocomplete="new-password">
       <label for="su-pass2">确认密码</label>
@@ -93,10 +95,13 @@ td.c-content{white-space:pre-wrap;word-break:break-word;max-width:320px}
   <div id="view-login" class="hidden" style="max-width:380px;margin-top:48px">
     <div class="card">
       <h2>KComment 登录</h2>
-      <label for="lg-pass">管理员密码</label>
+      <label for="lg-user">管理员用户名</label>
+      <input type="text" id="lg-user" value="kang0234" onkeydown="if(event.key==='Enter')document.getElementById('lg-btn').click()">
+      <label for="lg-pass">密码</label>
       <input type="password" id="lg-pass" onkeydown="if(event.key==='Enter')document.getElementById('lg-btn').click()">
       <div class="err" id="lg-err"></div>
       <button id="lg-btn" style="width:100%">登 录</button>
+      <div class="hint">连续失败会被限流甚至锁定 IP（规则可在后台调整）</div>
     </div>
   </div>
 
@@ -138,6 +143,36 @@ td.c-content{white-space:pre-wrap;word-break:break-word;max-width:320px}
       <div class="card" style="padding:10px 18px">
         <h2 style="margin:14px 0 10px">违规拦截日志</h2>
         <table><thead><tr><th>时间</th><th>命中的模式</th><th>内容摘要</th><th>IP</th><th>操作</th></tr></thead><tbody id="vl-body"></tbody></table>
+      </div>
+    </div>
+
+    <!-- 安全与管理员 -->
+    <div id="pane-security" class="hidden">
+      <div class="card" style="padding:10px 18px">
+        <h2 style="margin:14px 0 10px">登录安全策略</h2>
+        <div class="row">
+          <span style="font-size:13px">每 IP 每小时最多失败</span>
+          <input type="text" id="sec-rate" style="width:80px;text-align:center"> 次；
+          <span style="font-size:13px">连续失败达到</span>
+          <input type="text" id="sec-lock" style="width:80px;text-align:center"> 次直接封禁 IP
+        </div>
+        <div class="hint">管理员登录同样受限；封禁后走下面「IP 封禁管理」解封。</div>
+        <button class="ghost" id="sec-save" style="margin-top:8px">保存安全策略</button>
+      </div>
+
+      <div class="card" style="padding:10px 18px">
+        <h2 style="margin:14px 0 10px">管理员账号</h2>
+        <div class="row"><input type="text" id="adm-user" placeholder="用户名（3-24位字母数字）" style="flex:1;min-width:180px"><input type="password" id="adm-pass" placeholder="密码（≥8位）" style="flex:1;min-width:160px"><button id="adm-add">添加管理员</button></div>
+        <table style="margin-top:10px"><thead><tr><th>用户名</th><th>备注</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="adm-body"></tbody></table>
+      </div>
+
+      <div class="card" style="padding:10px 18px">
+        <h2 style="margin:14px 0 10px">IP 封禁管理</h2>
+        <div class="row"><input type="text" id="ban-ip" placeholder="x.x.x.x 手动封禁" style="flex:1;min-width:180px"><button id="ban-add">封禁</button></div>
+        <h3 style="font-size:13px;margin:12px 0 4px;color:var(--muted)">已封禁列表</h3>
+        <table><thead><tr><th>IP</th><th>原因</th><th>时间</th><th>操作</th></tr></thead><tbody id="ban-body"></tbody></table>
+        <h3 style="font-size:13px;margin:12px 0 4px;color:var(--muted)">近期登录失败 IP</h3>
+        <table><thead><tr><th>IP</th><th>连续失败</th><th>本小时失败</th><th>最近尝试</th><th>操作</th></tr></thead><tbody id="fail-body"></tbody></table>
       </div>
     </div>
 
@@ -190,7 +225,7 @@ document.getElementById('su-submit').addEventListener('click',function(){
   err('su-err','');
   var btn=this;
   if(document.getElementById('su-pass').value!==document.getElementById('su-pass2').value) return err('su-err','两次输入的密码不一致');
-  var payload={admin_password:document.getElementById('su-pass').value};
+  var payload={username:document.getElementById('su-user').value.trim(),admin_password:document.getElementById('su-pass').value};
   if(document.getElementById('su-ai-on').checked){
     payload.ai_moderation={enabled:true,base_url:document.getElementById('su-ai-url').value.trim(),api_key:document.getElementById('su-ai-key').value.trim(),model:document.getElementById('su-ai-model').value.trim()};
   }
@@ -205,7 +240,7 @@ document.getElementById('su-submit').addEventListener('click',function(){
 /* ---------- 登录 ---------- */
 document.getElementById('lg-btn').addEventListener('click',function(){
   err('lg-err','');
-  api('/login',{method:'POST',body:JSON.stringify({password:document.getElementById('lg-pass').value})}).then(function(r){
+  api('/login',{method:'POST',body:JSON.stringify({username:document.getElementById('lg-user').value.trim(),password:document.getElementById('lg-pass').value})}).then(function(r){
     if(r.code===0){ saveToken(r.data.token); location.href='/admin'; }
     else err('lg-err',r.msg||'登录失败');
   });
@@ -214,7 +249,7 @@ document.getElementById('btn-logout').addEventListener('click',function(){ saveT
 
 /* ---------- 面板 ---------- */
 var cState={tab:'',page:1,size:20};
-var TABS=[['comments','评论'],['pending','待审'],['approved','展示中'],['rejected','已拒绝'],['reports','举报'],['violations','违禁库'],['settings','设置']];
+var TABS=[['comments','评论'],['pending','待审'],['approved','展示中'],['rejected','已拒绝'],['reports','举报'],['violations','违禁库'],['security','安全与管理员'],['settings','设置']];
 
 function enterPanel(){
   show('view-panel');
@@ -244,9 +279,11 @@ function loadPane(){
   document.getElementById('pane-comments').classList.toggle('hidden',k!=='comments'&&k!=='pending'&&k!=='approved'&&k!=='rejected');
   document.getElementById('pane-reports').classList.toggle('hidden',k!=='reports');
   document.getElementById('pane-violations').classList.toggle('hidden',k!=='violations');
+  document.getElementById('pane-security').classList.toggle('hidden',k!=='security');
   document.getElementById('pane-settings').classList.toggle('hidden',k!=='settings');
   if(k==='reports') return loadReports();
   if(k==='violations') return loadViolations();
+  if(k==='security') return loadSecurity();
   if(k==='settings'){ loadSettings(); return; }
   if(['comments','pending','approved','rejected'].indexOf(k)>=0){
     loadComments(k==='comments'?'':k);
@@ -330,6 +367,81 @@ document.getElementById('vp-add').addEventListener('click',function(){
     if(r.code!==0){ alert(r.msg||'添加失败'); return; }
     document.getElementById('vp-pattern').value=''; document.getElementById('vp-note').value='';
     loadPane();
+  });
+});
+
+/* ---------- 安全与管理员 ---------- */
+function loadSecurity(){
+  // 策略
+  api('/settings').then(function(r){
+    if(r.code!==0)return;
+    fill('sec-rate',r.data.login_rate_max);
+    fill('sec-lock',r.data.login_lock_threshold);
+  });
+  // 管理员
+  api('/admins').then(function(r){
+    if(r.code!==0)return;
+    var tb=document.getElementById('adm-body'); tb.innerHTML='';
+    r.data.forEach(function(a){
+      var tr=document.createElement('tr');
+      tr.innerHTML='<td style="font-weight:600">'+esc(a.username)+'</td><td class="ip">'+esc(a.note||'-')+'</td><td class="ip">'+esc((a.created_at||'').slice(0,10))+'</td>';
+      var td=document.createElement('td');
+      var b=document.createElement('button'); b.className='mini ghost'; b.textContent='删除';
+      b.onclick=function(){ if(confirm('删除管理员 '+a.username+'？')) api('/admins/'+a.id,{method:'DELETE'}).then(loadSecurity); };
+      td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+    });
+    if(!r.data.length){ tb.innerHTML='<tr><td colspan="4" style="text-align:center;color:#8d8778">暂无账号</td></tr>'; }
+  });
+  // 封禁与失败记录
+  api('/bans').then(function(r){
+    if(r.code!==0)return;
+    var tb=document.getElementById('ban-body'); tb.innerHTML='';
+    if(!r.data.bans.length){ tb.innerHTML='<tr><td colspan="4" style="text-align:center;color:#8d8778">当前没有封禁 IP</td></tr>'; }
+    r.data.bans.forEach(function(x){
+      var tr=document.createElement('tr');
+      tr.innerHTML='<td class="ip" style="color:#a12622">'+esc(x.ip)+'</td><td class="ip">'+esc(x.reason||'-')+'</td><td class="ip">'+esc((x.banned_at||'').slice(0,16).replace('T',' '))+'</td>';
+      var td=document.createElement('td');
+      var b=document.createElement('button'); b.className='mini ghost'; b.textContent='解封';
+      b.onclick=function(){ api('/bans?ip='+encodeURIComponent(x.ip),{method:'DELETE'}).then(loadSecurity); };
+      td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+    });
+    var fb=document.getElementById('fail-body'); fb.innerHTML='';
+    if(!r.data.fails.length){ fb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#8d8778">暂无失败记录</td></tr>'; }
+    r.data.fails.forEach(function(x){
+      var tr=document.createElement('tr');
+      var banned=r.data.bans.some(function(bn){return bn.ip===x.ip;});
+      tr.innerHTML='<td class="ip">'+esc(x.ip)+'</td><td>'+(x.consecutive||0)+(x.consecutive>= (Number(document.getElementById('sec-lock').value)||30)?'<span class="ip" style="color:#a12622"> 已锁定</span>':'')+'</td><td>'+ (x.hour_count||0) +'</td><td class="ip">'+esc((x.updated_at||'').slice(0,16).replace('T',' '))+'</td>';
+      var td=document.createElement('td');
+      if(banned){ td.innerHTML='<span class="ip">已封禁</span>'; }
+      else{
+        var b=document.createElement('button'); b.className='mini ghost'; b.textContent='清零';
+        b.onclick=function(){ api('/bans?ip='+encodeURIComponent(x.ip),{method:'DELETE'}).then(loadSecurity); };
+        td.appendChild(b);
+      }
+      tr.appendChild(td); fb.appendChild(tr);
+    });
+  });
+}
+document.getElementById('sec-save').addEventListener('click',function(){
+  err('st-ok','');
+  api('/settings',{method:'PATCH',body:JSON.stringify({login_rate_max:Number(document.getElementById('sec-rate').value)||5,login_lock_threshold:Number(document.getElementById('sec-lock').value)||30})}).then(function(r){
+    var el=document.getElementById('st-ok');
+    el.textContent=r.code===0?'✓ 安全策略已保存':(r.msg||'保存失败');
+    el.style.display='block';
+  });
+});
+document.getElementById('adm-add').addEventListener('click',function(){
+  api('/admins',{method:'POST',body:JSON.stringify({username:document.getElementById('adm-user').value.trim(),password:document.getElementById('adm-pass').value})}).then(function(r){
+    if(r.code!==0){ alert(r.msg||'添加失败'); return; }
+    document.getElementById('adm-user').value=''; document.getElementById('adm-pass').value='';
+    loadSecurity();
+  });
+});
+document.getElementById('ban-add').addEventListener('click',function(){
+  api('/bans',{method:'POST',body:JSON.stringify({ip:document.getElementById('ban-ip').value.trim(),reason:'手动封禁'})}).then(function(r){
+    if(r.code!==0){ alert(r.msg||'操作失败'); return; }
+    document.getElementById('ban-ip').value='';
+    loadSecurity();
   });
 });
 

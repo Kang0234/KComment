@@ -68,6 +68,27 @@ CREATE TABLE IF NOT EXISTS violations (
   created_at   TEXT NOT NULL
 );
 
+-- 多管理员 / 登录限流 / IP 封禁（与 Cloudflare 版一致）
+CREATE TABLE IF NOT EXISTS admins (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  note          TEXT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_fails (
+  ip          TEXT PRIMARY KEY,
+  hour_ts     INTEGER NOT NULL,
+  hour_count  INTEGER NOT NULL DEFAULT 0,
+  consecutive INTEGER NOT NULL DEFAULT 0,
+  updated_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ip_bans (
+  ip        TEXT PRIMARY KEY,
+  reason    TEXT NULL,
+  banned_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_comments_page ON comments (page_key, status, id);
 CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments (parent_id);
 CREATE INDEX IF NOT EXISTS idx_reports_comment ON reports (comment_id);

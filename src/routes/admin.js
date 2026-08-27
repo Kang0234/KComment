@@ -11,6 +11,7 @@ const { loginLimiter, adminLimiter } = require('../middleware/ratelimit');
 const { toPublic } = require('../services/privacy');
 const { hashPassword, verifyPassword, safeEqual } = require('../services/passwords');
 const captchaSvc = require('../services/captcha');
+const logingate = require('../services/logingate');
 
 const router = Router();
 
@@ -102,9 +103,17 @@ router.post('/setup/init', async (req, res, next) => {
       });
     }
 
-    if (body.pre_moderation) init.pre_moderation = 'true';
+  if (body.pre_moderation) init.pre_moderation = 'true';
 
-    await finalizeInit(init);
+  await finalizeInit(init);
+
+  // 管理员账号表（与后台用户名密码体系一致）
+  const username = String(body.username || 'admin').trim().toLowerCase();
+  if (/^[a-z0-9_-]{3,24}$/.test(username)) {
+    db.prepare(
+      "INSERT INTO admins (username, password_hash, note, created_at) VALUES (?, ?, '站长', datetime('now')) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash"
+    ).run(username, init.admin_password_hash);
+  }
 
     res.json({ code: 0, data: { token: signAdmin({ role: 'admin' }) } });
   } catch (e) { next(e); }
@@ -145,7 +154,7 @@ function randomSecret() {
   return crypto.randomBytes(48).toString('base64url');
 }
 
-// ================= 登录（初始化后生效）=================
+// ================= 登录（用户名 + 密码，IP 安全闸门）=================
 
 router.post('/login', loginLimiter, async (req, res, next) => {
   try {
@@ -153,16 +162,38 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     if (!settings.isInitialized()) {
       return res.status(403).json({ code: 403, msg: '站点尚未完成初始化，请先运行安装向导' });
     }
+
+    const ip = clientIp(req);
+    const gate = await logingate.gate(ip);
+    if (!gate.ok) return res.status(gate.status).json({ code: gate.status, msg: gate.msg });
+
+    const username = String((req.body || {}).username || '').trim().toLowerCase();
     const password = String((req.body || {}).password || '');
-    const storedHash = settings.get('admin_password_hash', '');
-    let ok = false;
-    if (storedHash) {
-      ok = verifyPassword(password, storedHash);
-    } else if (!isDefaultAdminPassword()) {
-      ok = safeEqual(password, config.adminPassword);
+    if (!username || !password) {
+      return res.status(400).json({ code: 400, msg: '请输入管理员用户名和密码' });
     }
-    if (!ok) return res.status(401).json({ code: 401, msg: '密码错误' });
-    res.json({ code: 0, data: { token: signAdmin({ role: 'admin' }), expire: '24h' } });
+
+    let ok = false;
+    const adminRow = db.prepare('SELECT id, username, password_hash FROM admins WHERE username=?').get(username);
+    if (adminRow) {
+      ok = verifyPassword(password, adminRow.password_hash);
+    } else {
+      // 兼容旧版：用原管理员密码登录一次即创建同名账号
+      const storedHash = settings.get('admin_password_hash', '');
+      ok = storedHash ? verifyPassword(password, storedHash)
+        : (!isDefaultAdminPassword() && safeEqual(password, config.adminPassword));
+      if (ok) {
+        db.prepare("INSERT INTO admins (username, password_hash, note, created_at) VALUES (?, ?, '由旧版密码迁移', datetime('now'))")
+          .run(username, storedHash || hashPassword(password));
+      }
+    }
+    if (!ok) {
+      await logingate.recordFail(ip, gate.hourTs);
+      return res.status(401).json({ code: 401, msg: '用户名或密码错误' });
+    }
+
+    await logingate.clearFails(ip);
+    res.json({ code: 0, data: { token: signAdmin({ role: 'admin', sub: username }), expire: '24h', username } });
   } catch (e) { next(e); }
 });
 
@@ -183,6 +214,8 @@ router.get('/settings', async (req, res, next) => {
       code: 0,
       data: {
         pre_moderation: settings.preModeration(),
+        login_rate_max: Number(settings.get('login_rate_max', '5')) || 5,
+        login_lock_threshold: Number(settings.get('login_lock_threshold', '30')) || 30,
         captcha: {
           enabled: settings.boolOf(settings.get('captcha_enabled', 'false')),
           on_comment: settings.boolOf(settings.get('captcha_on_comment', 'false')),
@@ -209,6 +242,14 @@ router.patch('/settings', async (req, res, next) => {
 
     if (typeof body.pre_moderation === 'boolean') {
       patch.pre_moderation = body.pre_moderation ? 'true' : 'false';
+    }
+
+    const clampInt = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v))));
+    if (body.login_rate_max !== undefined && Number.isFinite(Number(body.login_rate_max))) {
+      patch.login_rate_max = String(clampInt(body.login_rate_max, 1, 500));
+    }
+    if (body.login_lock_threshold !== undefined && Number.isFinite(Number(body.login_lock_threshold))) {
+      patch.login_lock_threshold = String(clampInt(body.login_lock_threshold, 3, 1000));
     }
 
     const cap = body.captcha;
@@ -342,6 +383,77 @@ router.get('/stats', async (req, res, next) => {
         violations: q('SELECT COUNT(*) AS n FROM violations'),
       },
     });
+  } catch (e) { next(e); }
+});
+
+// ---- 管理员账号管理（多管理员）----
+router.get('/admins', async (req, res, next) => {
+  try {
+    const rows = db.prepare('SELECT id, username, note, created_at FROM admins ORDER BY id ASC').all();
+    res.json({ code: 0, data: rows });
+  } catch (e) { next(e); }
+});
+
+router.post('/admins', async (req, res, next) => {
+  try {
+    const username = String((req.body || {}).username || '').trim().toLowerCase();
+    const password = String((req.body || {}).password || '');
+    if (!/^[a-z0-9_-]{3,24}$/.test(username)) return res.status(400).json({ code: 400, msg: '用户名需为 3-24 位字母/数字/下划线/中划线' });
+    const err2 = validatePassword(password);
+    if (err2) return res.status(400).json({ code: 400, msg: err2 });
+    if (db.prepare('SELECT id FROM admins WHERE username=?').get(username)) return res.status(400).json({ code: 400, msg: '用户名已存在' });
+    const info = db.prepare('INSERT INTO admins (username, password_hash, created_at) VALUES (?, ?, datetime(\'now\'))')
+      .run(username, hashPassword(String(password)));
+    res.json({ code: 0, data: { id: info.lastInsertRowid } });
+  } catch (e) { next(e); }
+});
+
+router.delete('/admins/:id', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const meRow = db.prepare('SELECT COUNT(*) AS n FROM admins').get();
+    if (meRow.n <= 1) return res.status(400).json({ code: 400, msg: '至少保留一个管理员' });
+    const target = db.prepare('SELECT username FROM admins WHERE id=?').get(id);
+    if (!target) return res.status(404).json({ code: 404, msg: '账号不存在' });
+    if (target.username === req.admin.sub) return res.status(400).json({ code: 400, msg: '不能删除当前登录的账号' });
+    db.prepare('DELETE FROM admins WHERE id=?').run(id);
+    res.json({ code: 0, msg: '已删除' });
+  } catch (e) { next(e); }
+});
+
+// ---- IP 封禁管理 ----
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+function validIp(ip) { return typeof ip === 'string' && (IPV4_RE.test(ip) || ip.includes(':')); }
+
+router.get('/bans', async (req, res, next) => {
+  try {
+    res.json({
+      code: 0,
+      data: {
+        bans: db.prepare('SELECT ip, reason, banned_at FROM ip_bans ORDER BY banned_at DESC LIMIT 200').all(),
+        fails: db.prepare('SELECT ip, hour_count, consecutive, updated_at FROM login_fails WHERE consecutive>0 OR hour_count>0 ORDER BY consecutive DESC LIMIT 100').all(),
+      },
+    });
+  } catch (e) { next(e); }
+});
+
+router.post('/bans', async (req, res, next) => {
+  try {
+    const ip = String((req.body || {}).ip || '').trim();
+    if (!validIp(ip)) return res.status(400).json({ code: 400, msg: 'IP 格式不正确' });
+    db.prepare("INSERT INTO ip_bans (ip, reason, banned_at) VALUES (?, ?, datetime('now')) ON CONFLICT(ip) DO NOTHING")
+      .run(ip, String((req.body || {}).reason || '手动封禁'));
+    res.json({ code: 0, msg: '已封禁 ' + ip });
+  } catch (e) { next(e); }
+});
+
+router.delete('/bans', async (req, res, next) => {
+  try {
+    const ip = String(req.query.ip || '');
+    if (!validIp(ip)) return res.status(400).json({ code: 400, msg: 'IP 格式不正确' });
+    db.prepare('DELETE FROM ip_bans WHERE ip=?').run(ip);
+    db.prepare('DELETE FROM login_fails WHERE ip=?').run(ip);
+    res.json({ code: 0, msg: '已解封并清零失败计数：' + ip });
   } catch (e) { next(e); }
 });
 
