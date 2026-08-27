@@ -1,10 +1,12 @@
-# Priva Comment
+# KComment
 
 > 对标 Twikoo 的开源评论系统，核心理念：**隐私优先 + 安全治理**。后端干净直白，前端一段脚本即插即用。
 
+**官网**：[https://kc.kang0234.top](https://kc.kang0234.top) · **GitHub**：[https://github.com/Kang0234/KComment](https://github.com/Kang0234/KComment)
+
 ## 特点（对比 Twikoo 的增强）
 
-| 能力 | Twikoo | Priva Comment |
+| 能力 | Twikoo | KComment |
 | --- | --- | --- |
 | 邮箱存储 | 明文可在后台查看 | **只存 md5 哈希**（仅用于头像），绝不明文 |
 | IP 暴露 | 后果需自己挡 | **任何对外接口不下发 ip/ua**，仅管理员治理用 |
@@ -97,6 +99,14 @@ src/
 public/
   index.html            # 演示页
   widget/               # 前端评论模块
+site/
+  index.html            # 官网（部署在 Cloudflare Pages）
 data/
   sensitive-words.txt   # 敏感词表
 ```
+
+## 官网
+
+官网部署在 Cloudflare Pages，访问地址：[https://kc.kang0234.top](https://kc.kang0234.top)
+
+官网源码在 `site/index.html`，纯静态页面，可独立部署到任意静态托管平台。
