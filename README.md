@@ -2,7 +2,7 @@
 
 > 对标 Twikoo 的开源评论系统，核心理念：**隐私优先 + 安全治理**。后端干净直白，前端一段脚本即插即用。
 
-**官网**：[https://kc.kang0234.top](https://kc.kang0234.top) · **GitHub**：[https://github.com/Kang0234/KComment](https://github.com/Kang0234/KComment)
+**官网**：[https://kmenta.js.org](https://kmenta.js.org) · **GitHub**：[https://github.com/Kang0234/KComment](https://github.com/Kang0234/KComment)
 
 - 🔒 **隐私设计**：邮箱只存哈希（仅用于生成头像）、IP/UA 仅管理员可见、绝不下发前端
 - 🤖 **AI 审核**（可选）：接入任意 OpenAI 兼容接口（DeepSeek / 智谱 / 通义 / OpenAI…），自动判断广告、辱骂、违法内容
@@ -17,11 +17,12 @@
 
 1. [快速开始（本地运行）](#1-快速开始本地运行)
 2. [Vercel + MongoDB 部署（推荐，与 Twikoo 安装方式一致）](#2-vercel--mongodb-部署)
-3. [管理后台与初始化向导](#3-管理后台与初始化向导)
-4. [人机验证配置指南](#4-人机验证配置指南)
-5. [在网站中挂载评论区](#5-在网站中挂载评论区)
-6. [环境变量总表](#6-环境变量总表)
-7. [安全机制说明](#7-安全机制说明)
+3. [Cloudflare Pages + D1 部署（零服务器）](#3-cloudflare-pages--d1-部署零服务器)
+4. [管理后台与初始化向导](#4-管理后台与初始化向导)
+5. [人机验证配置指南](#5-人机验证配置指南)
+6. [在网站中挂载评论区](#6-在网站中挂载评论区)
+7. [环境变量总表](#7-环境变量总表)
+8. [安全机制说明](#8-安全机制说明)
 
 ---
 
@@ -79,7 +80,7 @@ Vercel 项目 → Settings → Environment Variables，添加：
 
 ### 第 4 步：初始化
 
-浏览器打开 `https://你的项目.vercel.app/admin/` → 完成[安装向导](#3-管理后台与初始化向导)。
+浏览器打开 `https://你的项目.vercel.app/admin/` → 完成[安装向导](#4-管理后台与初始化向导)。
 
 ### （可选）第 5 步：绑定自定义子域名
 
@@ -89,7 +90,39 @@ Vercel 项目 → Settings → Environment Variables，添加：
 2. 到你的 DNS 服务商（Cloudflare 用户在 DNS 页面）添加记录：类型 `CNAME`、名称 `kc`、目标 `cname.vercel-dns.com`；若 DNS 托管在 Cloudflare，代理状态建议先设为「仅 DNS」待证书签发后再开代理；
 3. 回到 Vercel 等待证书签发完成，访问 `https://kc.example.com/admin/` 验证。
 
-## 3. 管理后台与初始化向导
+## 3. Cloudflare Pages + D1 部署（零服务器）
+
+[官网 kmenta.js.org](https://kmenta.js.org) 即用此方式运行：静态资源 + Pages Functions 全部免费额度，评论数据存 D1。后台管理页额外套了 **Cloudflare Access** 组织级登录保护。
+
+> 官网部署源码在独立私有仓库 `kang0234/kcomment-website`（`site/` 静态页 + `functions/` API + `wrangler.toml`）。
+
+### 第 1 步：创建 D1 数据库
+
+```bash
+wrangler d1 create kcomment
+```
+
+把返回的 `database_id` 填进 `wrangler.toml`，然后建表：
+
+```bash
+wrangler d1 execute kcomment --file=./schema.sql --remote
+```
+
+### 第 2 步：部署
+
+```bash
+wrangler pages deploy   # 在仓库根目录执行，site/ 为静态资源，functions/ 自动打包
+```
+
+### 第 3 步：绑定自定义子域名
+
+Cloudflare Pages 项目 → 自定义域 → 添加子域名（如 `kmenta.js.org`），到 DNS 加一条 CNAME 指向 `你的项目.pages.dev`。js.org 子域名通过 [js-org/js.org](https://github.com/js-org/js.org) 的 PR 流程申请。
+
+### 第 4 步：初始化
+
+打开 `https://你的域名/admin/` 完成安装向导（设置管理员 → AI 审核 → 人机验证 → 预审核）。
+
+## 4. 管理后台与初始化向导
 
 首次启动（或换新库后首次启动）时，后台只有向导，登录接口被禁用：
 
@@ -110,7 +143,7 @@ Vercel 项目 → Settings → Environment Variables，添加：
 
 老版本升级说明：如果 `.env` 里已设置了强 `ADMIN_PASSWORD`，打开后台后点击底部「用旧密码快速初始化」，登录一次即自动迁移为哈希存储并生成随机 JWT 密钥。
 
-## 4. 人机验证配置指南
+## 5. 人机验证配置指南
 
 | 厂商 | 注册入口 | 特点 |
 |---|---|---|
@@ -127,7 +160,13 @@ Vercel 项目 → Settings → Environment Variables，添加：
 
 各家的 Secret Key 只保存在服务端，永远不会下发到浏览器；校验时由 KComment 服务端调用厂商 siteverify 接口完成。
 
-## 5. 在网站中挂载评论区
+### 联调 / 测试建议
+
+- **Turnstile 官方测试密钥**：Site Key `1x00000000000000000000AA` + Secret Key `1x0000000000000000000000000000000AA` 恒返回通过，可用来验证整条链路（配置 → 前端渲染 → 提交校验）；`2x...` 前缀密钥可模拟交互失败、超时等异常。测试完务必换回正式密钥。
+- **服务端 fail-closed**：未完成验证的提交会被直接拒绝（返回「人机验证未通过，请重试」），绕开前端直接调接口也一样——校验在服务端完成，令牌无法伪造。
+- **前端自动渲染**：widget 从 `GET /api/comment/site-config` 拉取配置（只含 provider 与 site key，绝不含 secret），按厂商加载对应组件；后台关闭「发评论前必须过验证」时访客完全无感。
+
+## 6. 在网站中挂载评论区
 
 在你的页面（页脚上方即可）加入：
 
@@ -148,7 +187,7 @@ Vercel 项目 → Settings → Environment Variables，添加：
 - `pageKey` 缺省取当前路径（`location.pathname`），即每个文章页有独立评论楼层；
 - 若后台开启了人机验证，组件会自动从 `/api/comment/site-config` 获取配置并渲染对应厂商的组件，无需额外代码。
 
-## 6. 环境变量总表
+## 7. 环境变量总表
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
@@ -163,7 +202,7 @@ Vercel 项目 → Settings → Environment Variables，添加：
 | `ALLOWED_ORIGINS` | `*` | CORS 白名单，生产务必收敛为主站域名 |
 | `TRUST_PROXY` | `1` | 是否信任反代的 X-Forwarded-For |
 
-## 7. 安全机制说明
+## 8. 安全机制说明
 
 - **认证**：管理员密码 scrypt+盐 哈希存储，登录比对常数时间防时序攻击；JWT 由初始化时生成的 ≥48 字节随机密钥签名，24h 过期；登录接口限速 5 次/分钟。
 - **注入/XSS**：全部 SQL 参数化；正文先 HTML 转义再过敏感词 Trie 过滤，双重处理落库；昵称禁止特殊字符。
